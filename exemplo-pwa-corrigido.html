@@ -1,0 +1,403 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Orações Católicas e Novenas - PWA Corrigido</title>
+    
+    <!-- PWA MANIFEST - OBRIGATÓRIO -->
+    <link rel="manifest" href="/manifest.json">
+    <meta name="theme-color" content="#264580">
+    
+    <!-- ÍCONES -->
+    <link rel="icon" type="image/png" href="/favicon.png">
+    <link rel="apple-touch-icon" href="/icon-192.png">
+    
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        
+        .status-box {
+            background: white;
+            padding: 20px;
+            border-radius: 10px;
+            margin: 20px 0;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        
+        .status-item {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 10px 0;
+            border-bottom: 1px solid #eee;
+        }
+        
+        .status-icon {
+            font-size: 24px;
+        }
+        
+        button {
+            background: linear-gradient(135deg, #1e3c72, #2a5298);
+            color: white;
+            border: none;
+            padding: 15px 30px;
+            border-radius: 50px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            width: 100%;
+            margin: 10px 0;
+        }
+        
+        button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(30,60,114,0.3);
+        }
+        
+        button:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+        }
+        
+        #pwa-status {
+            font-family: monospace;
+            background: #000;
+            color: #0f0;
+            padding: 15px;
+            border-radius: 5px;
+            max-height: 400px;
+            overflow-y: auto;
+            font-size: 12px;
+            line-height: 1.4;
+        }
+    </style>
+</head>
+<body>
+    <h1>🙏 Orações Católicas e Novenas</h1>
+    <p>Sistema PWA com Modal de Instalação Corrigido</p>
+    
+    <!-- STATUS DO PWA -->
+    <div class="status-box">
+        <h2>📊 Status do PWA</h2>
+        <div id="status-checklist"></div>
+    </div>
+    
+    <!-- BOTÕES DE AÇÃO -->
+    <div class="status-box">
+        <h2>🎮 Ações</h2>
+        <button id="btn-verificar" onclick="verificarTudo()">
+            🔍 Verificar Status Completo
+        </button>
+        <button id="btn-instalar-manual" onclick="instalarAppManual()">
+            📲 Instalar App Manualmente
+        </button>
+        <button onclick="ativarNotificacoes()">
+            🔔 Ativar Notificações
+        </button>
+        <button onclick="limparCache()">
+            🗑️ Limpar Cache e Recarregar
+        </button>
+    </div>
+    
+    <!-- LOGS -->
+    <div class="status-box">
+        <h2>📝 Logs do Console</h2>
+        <div id="pwa-status"></div>
+    </div>
+    
+    <!-- MODAL DE INSTALAÇÃO -->
+    <div id="modal-instalar" style="
+        position: fixed;
+        inset: 0;
+        background: rgba(0,0,0,0.6);
+        display: none;
+        align-items: center;
+        justify-content: center;
+        z-index: 99999;
+    ">
+        <div style="
+            background: #fff;
+            max-width: 420px;
+            width: 90%;
+            padding: 30px;
+            border-radius: 20px;
+            text-align: center;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+        ">
+            <h2 style="color:#1e3c72; margin-bottom:15px;">
+                🙏 Leve a Palavra de Deus com você
+            </h2>
+            
+            <p style="color:#444; line-height:1.6; margin-bottom:20px;">
+                Instale nosso aplicativo para ter acesso rápido a orações,
+                novenas e a Palavra de Deus todos os dias!
+            </p>
+            
+            <button id="btn-instalar-modal">
+                📲 Instalar Aplicativo
+            </button>
+            
+            <button onclick="fecharModalInstalar()" style="
+                background: #ccc;
+                color: #333;
+            ">
+                Agora não
+            </button>
+        </div>
+    </div>
+    
+    <!-- SCRIPTS PWA -->
+    <script>
+        // ==========================================
+        // CONFIGURAÇÃO
+        // ==========================================
+        let deferredPrompt = null;
+        const PWA_DEBUG = true;
+        
+        // ==========================================
+        // SISTEMA DE LOGS
+        // ==========================================
+        function addLog(message, type = 'info') {
+            const statusDiv = document.getElementById('pwa-status');
+            const timestamp = new Date().toLocaleTimeString();
+            
+            const colors = {
+                info: '#2196F3',
+                success: '#4CAF50',
+                warning: '#FF9800',
+                error: '#F44336'
+            };
+            
+            const log = document.createElement('div');
+            log.style.color = colors[type] || colors.info;
+            log.textContent = `[${timestamp}] ${message}`;
+            statusDiv.appendChild(log);
+            statusDiv.scrollTop = statusDiv.scrollHeight;
+            
+            // Também logar no console
+            console.log(`%c[PWA] ${message}`, `color: ${colors[type]}; font-weight: bold`);
+        }
+        
+        // ==========================================
+        // VERIFICAR REQUISITOS
+        // ==========================================
+        function verificarTudo() {
+            addLog('🔍 Iniciando verificação completa...', 'info');
+            
+            const checklist = {
+                'HTTPS/Localhost': window.location.protocol === 'https:' || window.location.hostname === 'localhost',
+                'Service Worker Suportado': 'serviceWorker' in navigator,
+                'Service Worker Ativo': !!navigator.serviceWorker.controller,
+                'Manifest Presente': !!document.querySelector('link[rel="manifest"]'),
+                'Notificações Suportadas': 'Notification' in window,
+                'Permissão de Notificação': Notification.permission,
+                'beforeinstallprompt Capturado': !!deferredPrompt,
+                'App em Standalone': window.matchMedia('(display-mode: standalone)').matches
+            };
+            
+            const checklistDiv = document.getElementById('status-checklist');
+            checklistDiv.innerHTML = '';
+            
+            for (const [key, value] of Object.entries(checklist)) {
+                const item = document.createElement('div');
+                item.className = 'status-item';
+                
+                let icon = '❌';
+                let status = value;
+                
+                if (typeof value === 'boolean') {
+                    icon = value ? '✅' : '❌';
+                    status = value ? 'Sim' : 'Não';
+                }
+                
+                item.innerHTML = `
+                    <span class="status-icon">${icon}</span>
+                    <strong>${key}:</strong>
+                    <span>${status}</span>
+                `;
+                
+                checklistDiv.appendChild(item);
+                addLog(`${icon} ${key}: ${status}`, value ? 'success' : 'warning');
+            }
+            
+            addLog('✅ Verificação concluída', 'success');
+        }
+        
+        // ==========================================
+        // MODAL
+        // ==========================================
+        function mostrarModalInstalar() {
+            const modal = document.getElementById("modal-instalar");
+            if (modal) {
+                modal.style.display = "flex";
+                addLog('📱 Modal de instalação exibido', 'success');
+            }
+        }
+        
+        function fecharModalInstalar() {
+            const modal = document.getElementById("modal-instalar");
+            if (modal) {
+                modal.style.display = "none";
+                addLog('✖️ Modal fechado', 'info');
+            }
+        }
+        
+        // ==========================================
+        // INSTALAÇÃO
+        // ==========================================
+        async function instalarAppManual() {
+            if (!deferredPrompt) {
+                addLog('⚠️ Prompt de instalação não disponível', 'warning');
+                addLog('Possíveis causas:', 'warning');
+                addLog('- App já instalado', 'warning');
+                addLog('- beforeinstallprompt não disparou', 'warning');
+                addLog('- Navegador não suporta', 'warning');
+                
+                // Tentar mostrar modal de qualquer forma
+                mostrarModalInstalar();
+                return;
+            }
+            
+            try {
+                addLog('📲 Solicitando instalação...', 'info');
+                deferredPrompt.prompt();
+                
+                const choiceResult = await deferredPrompt.userChoice;
+                
+                if (choiceResult.outcome === 'accepted') {
+                    addLog('✅ Usuário aceitou instalar!', 'success');
+                } else {
+                    addLog('❌ Usuário recusou a instalação', 'warning');
+                }
+                
+                deferredPrompt = null;
+                fecharModalInstalar();
+                
+            } catch (error) {
+                addLog(`❌ Erro: ${error.message}`, 'error');
+            }
+        }
+        
+        // ==========================================
+        // NOTIFICAÇÕES
+        // ==========================================
+        async function ativarNotificacoes() {
+            if (!("Notification" in window)) {
+                addLog('❌ Notificações não suportadas', 'error');
+                return;
+            }
+            
+            try {
+                const permission = await Notification.requestPermission();
+                addLog(`🔔 Permissão: ${permission}`, permission === 'granted' ? 'success' : 'warning');
+                
+                if (permission === 'granted') {
+                    new Notification('✅ Notificações Ativadas!', {
+                        body: 'Você receberá atualizações de orações e novenas',
+                        icon: '/icon-192.png'
+                    });
+                }
+            } catch (error) {
+                addLog(`❌ Erro: ${error.message}`, 'error');
+            }
+        }
+        
+        // ==========================================
+        // CACHE
+        // ==========================================
+        async function limparCache() {
+            try {
+                if ('caches' in window) {
+                    const cacheNames = await caches.keys();
+                    await Promise.all(cacheNames.map(name => caches.delete(name)));
+                    addLog('✅ Cache limpo', 'success');
+                }
+                
+                if ('serviceWorker' in navigator) {
+                    const registrations = await navigator.serviceWorker.getRegistrations();
+                    await Promise.all(registrations.map(reg => reg.unregister()));
+                    addLog('✅ Service Workers desregistrados', 'success');
+                }
+                
+                addLog('🔄 Recarregando página...', 'info');
+                setTimeout(() => window.location.reload(), 1000);
+                
+            } catch (error) {
+                addLog(`❌ Erro: ${error.message}`, 'error');
+            }
+        }
+        
+        // ==========================================
+        // SERVICE WORKER
+        // ==========================================
+        async function registrarServiceWorker() {
+            if (!('serviceWorker' in navigator)) {
+                addLog('❌ Service Worker não suportado', 'error');
+                return;
+            }
+            
+            try {
+                addLog('📝 Registrando Service Worker...', 'info');
+                
+                const registration = await navigator.serviceWorker.register('/service-worker.js', {
+                    scope: '/'
+                });
+                
+                addLog('✅ Service Worker registrado', 'success');
+                addLog(`   Scope: ${registration.scope}`, 'info');
+                
+                return registration;
+                
+            } catch (error) {
+                addLog(`❌ Erro: ${error.message}`, 'error');
+            }
+        }
+        
+        // ==========================================
+        // EVENTOS
+        // ==========================================
+        window.addEventListener("beforeinstallprompt", (e) => {
+            addLog('🎉 beforeinstallprompt capturado!', 'success');
+            e.preventDefault();
+            deferredPrompt = e;
+            
+            // Mostrar modal após 3 segundos
+            setTimeout(() => {
+                mostrarModalInstalar();
+            }, 3000);
+        });
+        
+        window.addEventListener('appinstalled', () => {
+            addLog('🎊 App instalado com sucesso!', 'success');
+            fecharModalInstalar();
+        });
+        
+        // ==========================================
+        // INICIALIZAÇÃO
+        // ==========================================
+        window.addEventListener('load', async () => {
+            addLog('🚀 Iniciando sistema PWA...', 'info');
+            
+            await registrarServiceWorker();
+            verificarTudo();
+            
+            // Configurar botões
+            document.getElementById('btn-instalar-modal')?.addEventListener('click', instalarAppManual);
+            
+            addLog('✨ Sistema inicializado!', 'success');
+            
+            // Status após 5 segundos
+            setTimeout(() => {
+                addLog('📊 Status final:', 'info');
+                addLog(`   Prompt disponível: ${deferredPrompt ? 'SIM' : 'NÃO'}`, deferredPrompt ? 'success' : 'warning');
+            }, 5000);
+        });
+    </script>
+</body>
+</html>
