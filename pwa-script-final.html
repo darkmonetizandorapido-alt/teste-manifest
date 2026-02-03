@@ -1,8 +1,6 @@
 <!-- ===============================
- PWA SCRIPT - VERSÃO CORRIGIDA FINAL
- - Aguarda SW ficar ativo
- - Reload automático se necessário
- - Verificações constantes
+ PWA SCRIPT - SEM LOOP INFINITO
+ + FALLBACK MANUAL
 =============================== -->
 <script>
 // ==========================================
@@ -10,6 +8,8 @@
 // ==========================================
 let deferredPrompt = null;
 const PWA_DEBUG = true;
+let verificacoesRealizadas = 0;
+const MAX_VERIFICACOES = 5; // Máximo de tentativas
 
 // ==========================================
 // SISTEMA DE LOGS
@@ -39,40 +39,49 @@ function addLog(message, type = 'info') {
 }
 
 // ==========================================
-// AGUARDAR SERVICE WORKER FICAR ATIVO
+// DETECTAR NAVEGADOR
 // ==========================================
-async function aguardarServiceWorkerAtivo() {
-    if (!('serviceWorker' in navigator)) {
-        addLog('❌ Service Worker não suportado', 'error');
+function detectarNavegador() {
+    const ua = navigator.userAgent;
+    let navegador = 'Desconhecido';
+    
+    if (ua.includes('Chrome') && !ua.includes('Edge')) navegador = 'Chrome';
+    else if (ua.includes('Edg')) navegador = 'Edge';
+    else if (ua.includes('Firefox')) navegador = 'Firefox';
+    else if (ua.includes('Safari') && !ua.includes('Chrome')) navegador = 'Safari';
+    
+    const mobile = /Android|iPhone|iPad|iPod/i.test(ua);
+    const ios = /iPhone|iPad|iPod/i.test(ua);
+    
+    return { navegador, mobile, ios };
+}
+
+// ==========================================
+// VERIFICAR SUPORTE A INSTALAÇÃO
+// ==========================================
+function verificarSuporteInstalacao() {
+    const { navegador, mobile, ios } = detectarNavegador();
+    
+    addLog(`📱 Navegador: ${navegador}${mobile ? ' (Mobile)' : ' (Desktop)'}`, 'info');
+    
+    if (ios) {
+        addLog('⚠️ iOS detectado: beforeinstallprompt não suportado', 'warning');
+        addLog('💡 Instruções: Safari → Compartilhar → Adicionar à Tela Inicial', 'info');
         return false;
     }
     
-    addLog('⏳ Aguardando Service Worker ficar ativo...', 'info');
-    
-    try {
-        // Aguardar até que o SW esteja pronto
-        const registration = await navigator.serviceWorker.ready;
-        addLog('✅ Service Worker está pronto!', 'success');
-        
-        // Verificar se está controlando a página
-        if (navigator.serviceWorker.controller) {
-            addLog('👑 Service Worker está controlando a página', 'success');
-            return true;
-        } else {
-            addLog('⚠️ SW pronto mas não está controlando ainda', 'warning');
-            addLog('🔄 Recarregando página para ativar...', 'info');
-            
-            // Aguardar um pouco antes de recarregar
-            setTimeout(() => {
-                window.location.reload();
-            }, 1000);
-            
-            return false;
-        }
-    } catch (error) {
-        addLog(`❌ Erro ao aguardar SW: ${error.message}`, 'error');
+    if (navegador === 'Firefox') {
+        addLog('⚠️ Firefox não suporta instalação automática de PWA', 'warning');
         return false;
     }
+    
+    if (navegador === 'Safari') {
+        addLog('⚠️ Safari desktop não suporta instalação de PWA', 'warning');
+        return false;
+    }
+    
+    addLog(`✅ ${navegador} suporta instalação de PWA`, 'success');
+    return true;
 }
 
 // ==========================================
@@ -89,96 +98,28 @@ async function registrarServiceWorker() {
         
         const registration = await navigator.serviceWorker.register('/service-worker.js', {
             scope: '/',
-            updateViaCache: 'none' // Sempre buscar versão mais recente
+            updateViaCache: 'none'
         });
         
         addLog('✅ Service Worker registrado', 'success');
         addLog(`   Scope: ${registration.scope}`, 'info');
         
-        // Verificar estado atual
-        if (registration.installing) {
-            addLog('   Estado: Instalando...', 'info');
-        } else if (registration.waiting) {
-            addLog('   Estado: Aguardando... (recarregue a página)', 'warning');
-        } else if (registration.active) {
-            addLog('   Estado: Ativo ✅', 'success');
-        }
-        
-        // Listener para atualizações
-        registration.addEventListener('updatefound', () => {
-            addLog('🔄 Nova versão encontrada', 'info');
-            const newWorker = registration.installing;
-            
-            newWorker.addEventListener('statechange', () => {
-                addLog(`   Novo estado: ${newWorker.state}`, 'info');
-                
-                if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
-                    addLog('✨ Nova versão pronta! Recarregue para atualizar', 'success');
-                }
-            });
-        });
-        
-        // Listener para mensagens do SW
-        navigator.serviceWorker.addEventListener('message', (event) => {
-            addLog(`💬 Mensagem do SW: ${event.data.type}`, 'info');
-            
-            if (event.data.type === 'SW_ACTIVATED') {
-                addLog('🎉 Service Worker confirmou ativação!', 'success');
-                verificarInstalabilidade();
-            }
-        });
+        // Aguardar estar pronto
+        await navigator.serviceWorker.ready;
+        addLog('✅ Service Worker está pronto', 'success');
         
         return registration;
         
     } catch (error) {
         addLog(`❌ Erro ao registrar SW: ${error.message}`, 'error');
-        console.error(error);
         return null;
     }
 }
 
 // ==========================================
-// VERIFICAR SE PODE INSTALAR
-// ==========================================
-async function verificarInstalabilidade() {
-    addLog('🔍 Verificando instalabilidade...', 'info');
-    
-    // Aguardar SW estar ativo
-    const swAtivo = await aguardarServiceWorkerAtivo();
-    
-    if (!swAtivo) {
-        addLog('⚠️ SW não está ativo, instalação não disponível ainda', 'warning');
-        return;
-    }
-    
-    // Verificar se já está instalado
-    if (window.matchMedia('(display-mode: standalone)').matches) {
-        addLog('✅ App já está instalado!', 'success');
-        return;
-    }
-    
-    // Verificar se prompt está disponível
-    if (deferredPrompt) {
-        addLog('✅ Prompt de instalação disponível!', 'success');
-        
-        // Mostrar modal automaticamente após 3 segundos
-        setTimeout(() => {
-            mostrarModalInstalar();
-        }, 3000);
-    } else {
-        addLog('⏳ Aguardando evento beforeinstallprompt...', 'info');
-        
-        // Tentar novamente após alguns segundos
-        setTimeout(verificarInstalabilidade, 2000);
-    }
-}
-
-// ==========================================
-// VERIFICAR REQUISITOS
+// VERIFICAR TUDO
 // ==========================================
 function verificarTudo() {
-    addLog('🔍 Iniciando verificação completa...', 'info');
-    
     const checklist = {
         'HTTPS/Localhost': window.location.protocol === 'https:' || window.location.hostname === 'localhost',
         'Service Worker Suportado': 'serviceWorker' in navigator,
@@ -213,25 +154,80 @@ function verificarTudo() {
             `;
             
             checklistDiv.appendChild(item);
-            addLog(`${icon} ${key}: ${status}`, value ? 'success' : 'warning');
         }
     }
     
-    addLog('✅ Verificação concluída', 'success');
-    
-    // Se tudo OK mas prompt não disparou
-    if (checklist['HTTPS/Localhost'] && 
-        checklist['Service Worker Ativo'] && 
-        checklist['Manifest Presente'] && 
-        !checklist['beforeinstallprompt Capturado'] &&
-        !checklist['App em Standalone']) {
-        
-        addLog('⚠️ Requisitos OK mas prompt não disparou', 'warning');
-        addLog('💡 Possíveis causas:', 'info');
-        addLog('   - Chrome: precisa de engajamento do usuário', 'info');
-        addLog('   - Navegador não suporta instalação', 'info');
-        addLog('   - Já foi instalado antes e desinstalado', 'info');
+    return checklist;
+}
+
+// ==========================================
+// VERIFICAR SE PODE INSTALAR
+// ==========================================
+async function verificarInstalabilidade() {
+    // PREVENIR LOOP INFINITO
+    verificacoesRealizadas++;
+    if (verificacoesRealizadas > MAX_VERIFICACOES) {
+        addLog('⚠️ Máximo de verificações atingido', 'warning');
+        addLog('💡 O evento beforeinstallprompt pode não disparar neste navegador/situação', 'info');
+        mostrarInstrucoesManuais();
+        return;
     }
+    
+    addLog(`🔍 Verificação ${verificacoesRealizadas}/${MAX_VERIFICACOES}...`, 'info');
+    
+    // Verificar se já está instalado
+    if (window.matchMedia('(display-mode: standalone)').matches) {
+        addLog('✅ App já está instalado!', 'success');
+        return;
+    }
+    
+    // Verificar se SW está ativo
+    if (!navigator.serviceWorker.controller) {
+        addLog('⏳ Aguardando Service Worker ficar ativo...', 'info');
+        setTimeout(verificarInstalabilidade, 2000);
+        return;
+    }
+    
+    // Verificar se prompt está disponível
+    if (deferredPrompt) {
+        addLog('✅ Prompt de instalação disponível!', 'success');
+        setTimeout(mostrarModalInstalar, 3000);
+        return;
+    }
+    
+    // Se não disparou ainda, tentar novamente
+    if (verificacoesRealizadas < MAX_VERIFICACOES) {
+        addLog(`⏳ Aguardando beforeinstallprompt... (tentativa ${verificacoesRealizadas})`, 'info');
+        setTimeout(verificarInstalabilidade, 3000);
+    } else {
+        mostrarInstrucoesManuais();
+    }
+}
+
+// ==========================================
+// INSTRUÇÕES MANUAIS
+// ==========================================
+function mostrarInstrucoesManuais() {
+    const { navegador, ios } = detectarNavegador();
+    
+    addLog('', 'info');
+    addLog('📱 COMO INSTALAR MANUALMENTE:', 'warning');
+    
+    if (ios) {
+        addLog('iOS Safari:', 'info');
+        addLog('1. Toque no botão Compartilhar (quadrado com seta)', 'info');
+        addLog('2. Role e toque em "Adicionar à Tela Inicial"', 'info');
+        addLog('3. Toque em "Adicionar"', 'info');
+    } else if (navegador === 'Chrome' || navegador === 'Edge') {
+        addLog(`${navegador}:`, 'info');
+        addLog('1. Clique nos 3 pontos (⋮) no canto superior direito', 'info');
+        addLog('2. Clique em "Instalar aplicativo..." ou "Instalar [nome]"', 'info');
+        addLog('3. Confirme a instalação', 'info');
+    } else {
+        addLog('Use Chrome ou Edge para melhor experiência', 'info');
+    }
+    
+    addLog('', 'info');
 }
 
 // ==========================================
@@ -254,17 +250,12 @@ function fecharModalInstalar() {
 }
 
 // ==========================================
-// INSTALAÇÃO
+// INSTALAR APP
 // ==========================================
 async function instalarAppManual() {
     if (!deferredPrompt) {
-        addLog('⚠️ Prompt de instalação não disponível', 'warning');
-        addLog('Possíveis soluções:', 'info');
-        addLog('1. Aguardar alguns segundos', 'info');
-        addLog('2. Interagir com o site (clicar, rolar)', 'info');
-        addLog('3. Usar menu do navegador: Menu → Instalar', 'info');
-        
-        mostrarModalInstalar();
+        addLog('⚠️ Instalação automática não disponível', 'warning');
+        mostrarInstrucoesManuais();
         return;
     }
     
@@ -289,35 +280,6 @@ async function instalarAppManual() {
 }
 
 // ==========================================
-// EVENTOS
-// ==========================================
-window.addEventListener("beforeinstallprompt", (e) => {
-    addLog('🎉 beforeinstallprompt capturado!', 'success');
-    e.preventDefault();
-    deferredPrompt = e;
-    
-    // Atualizar checklist
-    verificarTudo();
-    
-    // Mostrar modal após 3 segundos
-    setTimeout(() => {
-        mostrarModalInstalar();
-    }, 3000);
-});
-
-window.addEventListener('appinstalled', () => {
-    addLog('🎊 App instalado com sucesso!', 'success');
-    fecharModalInstalar();
-    
-    // Ativar notificações
-    setTimeout(() => {
-        if (typeof ativarNotificacoes === 'function') {
-            ativarNotificacoes();
-        }
-    }, 1000);
-});
-
-// ==========================================
 // NOTIFICAÇÕES
 // ==========================================
 async function ativarNotificacoes() {
@@ -332,7 +294,7 @@ async function ativarNotificacoes() {
         
         if (permission === 'granted') {
             new Notification('✅ Notificações Ativadas!', {
-                body: 'Você receberá atualizações de orações e novenas',
+                body: 'Você receberá atualizações de orações',
                 icon: '/icon-192.png'
             });
         }
@@ -360,7 +322,7 @@ async function limparCache() {
             addLog('✅ Service Workers desregistrados', 'success');
         }
         
-        addLog('🔄 Recarregando em 1 segundo...', 'info');
+        addLog('🔄 Recarregando...', 'info');
         setTimeout(() => window.location.reload(true), 1000);
         
     } catch (error) {
@@ -369,55 +331,66 @@ async function limparCache() {
 }
 
 // ==========================================
+// EVENTOS
+// ==========================================
+window.addEventListener("beforeinstallprompt", (e) => {
+    addLog('🎉 beforeinstallprompt capturado!', 'success');
+    e.preventDefault();
+    deferredPrompt = e;
+    
+    verificarTudo();
+    
+    // Parar verificações já que o prompt está disponível
+    verificacoesRealizadas = MAX_VERIFICACOES;
+    
+    setTimeout(mostrarModalInstalar, 3000);
+});
+
+window.addEventListener('appinstalled', () => {
+    addLog('🎊 App instalado com sucesso!', 'success');
+    fecharModalInstalar();
+});
+
+// ==========================================
 // INICIALIZAÇÃO
 // ==========================================
 window.addEventListener('load', async () => {
     addLog('🚀 Iniciando sistema PWA...', 'info');
     
-    // 1. Registrar Service Worker
+    // 1. Detectar navegador
+    const suporta = verificarSuporteInstalacao();
+    
+    // 2. Registrar SW
     await registrarServiceWorker();
     
-    // 2. Aguardar SW ficar ativo
-    const swAtivo = await aguardarServiceWorkerAtivo();
-    
-    // 3. Verificar tudo
-    verificarTudo();
+    // 3. Verificar requisitos
+    addLog('🔍 Iniciando verificação completa...', 'info');
+    const status = verificarTudo();
+    addLog('✅ Verificação concluída', 'success');
     
     // 4. Configurar botões
     const btnInstalar = document.getElementById('btn-instalar');
     const btnInstalarModal = document.getElementById('btn-instalar-modal');
     
-    if (btnInstalar) {
-        btnInstalar.addEventListener('click', instalarAppManual);
-    }
-    
-    if (btnInstalarModal) {
-        btnInstalarModal.addEventListener('click', instalarAppManual);
-    }
+    if (btnInstalar) btnInstalar.addEventListener('click', instalarAppManual);
+    if (btnInstalarModal) btnInstalarModal.addEventListener('click', instalarAppManual);
     
     addLog('✨ Sistema inicializado!', 'success');
     
-    // 5. Verificar instalabilidade após tudo carregar
-    if (swAtivo) {
+    // 5. Iniciar verificações (se navegador suporta)
+    if (suporta && status['Service Worker Ativo']) {
         setTimeout(verificarInstalabilidade, 2000);
+    } else if (!suporta) {
+        setTimeout(mostrarInstrucoesManuais, 2000);
     }
     
-    // 6. Status após 5 segundos
+    // 6. Status final
     setTimeout(() => {
         addLog('📊 Status final:', 'info');
-        addLog(`   Prompt disponível: ${deferredPrompt ? 'SIM ✅' : 'NÃO ❌'}`, deferredPrompt ? 'success' : 'warning');
+        addLog(`   Prompt disponível: ${deferredPrompt ? 'SIM ✅' : 'NÃO ❌'}`, 
+               deferredPrompt ? 'success' : 'warning');
         addLog(`   SW controlando: ${navigator.serviceWorker.controller ? 'SIM ✅' : 'NÃO ❌'}`, 
                navigator.serviceWorker.controller ? 'success' : 'warning');
-    }, 5000);
+    }, 8000);
 });
-
-// ==========================================
-// MONITORAR MUDANÇAS NO SW
-// ==========================================
-if ('serviceWorker' in navigator) {
-    navigator.serviceWorker.addEventListener('controllerchange', () => {
-        addLog('🔄 Novo Service Worker assumiu controle!', 'success');
-        verificarInstalabilidade();
-    });
-}
 </script>
